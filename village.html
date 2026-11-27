@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#17251e">
+<title>Eket Clicker — Деревня</title>
+<style>
+:root{color-scheme:dark;--panel:rgba(20,35,29,.88);--gold:#f2c66d}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#17251e;font-family:system-ui,-apple-system,Segoe UI,sans-serif;touch-action:none}
+#game{position:fixed;inset:0;overflow:hidden;background:#294b36}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.topbar{position:fixed;top:max(12px,env(safe-area-inset-top));left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;pointer-events:none}
+.brand,.hint{background:var(--panel);border:1px solid #ffffff25;border-radius:14px;padding:9px 13px;color:#fff;box-shadow:0 5px 18px #0005;backdrop-filter:blur(8px)}
+.brand{font-weight:800;letter-spacing:.3px}.brand small{display:block;color:#c9d8c8;font-size:10px;font-weight:500;letter-spacing:1.5px}
+.hint{font-size:12px;color:#e8e4d7}
+.actions{position:fixed;left:12px;bottom:max(14px,env(safe-area-inset-bottom));display:flex;gap:8px}
+button{border:1px solid #ffffff35;background:var(--panel);color:#fff;border-radius:13px;padding:12px 15px;font-size:14px;font-weight:700;box-shadow:0 5px 18px #0005;backdrop-filter:blur(8px)}
+button:active{transform:scale(.97);background:#385541}
+#toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);background:#17251ee8;color:#fff;padding:9px 14px;border-radius:20px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1}
+@media(min-width:700px){.hint{font-size:13px}.brand{font-size:17px}}
+</style>
+</head>
+<body>
+<div id="game">
+ <canvas id="world" aria-label="Изометрическая деревня. Нажмите на землю, чтобы переместить героя."></canvas>
+ <div class="topbar">
+  <div class="brand">EKET CLICKER<small>VILLAGE · SAFE ZONE</small></div>
+  <div class="hint">Нажми на землю — герой пойдёт туда</div>
+ </div>
+ <div class="actions">
+  <button id="back">← Назад в игру</button>
+  <button id="center">◎ К герою</button>
+ </div>
+ <div id="toast"></div>
+</div>
+<script>
+(() => {
+'use strict';
+const canvas=document.getElementById('world'),ctx=canvas.getContext('2d');
+const MAP_URL='https://raw.githubusercontent.com/sashaaeketik-blip/Eketcliker/main/village-map.png';
+const map=new Image(); map.crossOrigin='anonymous'; map.src=MAP_URL;
+let W=0,H=0,dpr=1,scale=1,offsetX=0,offsetY=0,last=0;
+const world={w:1536,h:1024};
+const hero={x:770,y:520,tx:770,ty:520,dir:1,step:0,moving:false};
+let obstacles=[];
+function resize(){
+ dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+ canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);
+ canvas.style.width=W+'px';canvas.style.height=H+'px';
+ scale=Math.min(W/world.w,H/world.h)*1.12;
+ offsetX=(W-world.w*scale)/2;offsetY=(H-world.h*scale)/2;
+}
+addEventListener('resize',resize);resize();
+function worldPoint(e){
+ const r=canvas.getBoundingClientRect();
+ return {x:(e.clientX-r.left-offsetX)/scale,y:(e.clientY-r.top-offsetY)/scale};
+}
+// Approximate solid zones for the large structures visible on the village map.
+// The open paths and central square remain walkable.
+obstacles=[
+ {x:130,y:80,w:310,h:250},{x:590,y:35,w:340,h:245},{x:1120,y:65,w:300,h:270},
+ {x:80,y:650,w:300,h:250},{x:1120,y:690,w:330,h:240},
+ {x:485,y:360,w:170,h:110},{x:930,y:390,w:190,h:120}
+];
+function blocked(x,y){
+ if(x<35||y<35||x>world.w-35||y>world.h-35)return true;
+ return obstacles.some(o=>x>o.x&&x<o.x+o.w&&y>o.y&&y<o.y+o.h);
+}
+function findWalkable(x,y){
+ x=Math.max(40,Math.min(world.w-40,x));y=Math.max(40,Math.min(world.h-40,y));
+ if(!blocked(x,y))return {x,y};
+ for(let radius=18;radius<260;radius+=18){
+  for(let a=0;a<Math.PI*2;a+=Math.PI/12){
+   const nx=x+Math.cos(a)*radius,ny=y+Math.sin(a)*radius;
+   if(!blocked(nx,ny))return {x:nx,y:ny};
+  }
+ }
+ return {x:770,y:520};
+}
+function setTarget(x,y){
+ const p=findWalkable(x,y);hero.tx=p.x;hero.ty=p.y;hero.moving=true;
+}
+canvas.addEventListener('pointerdown',e=>{
+ if(e.clientY>H-76 && e.clientX<180)return;
+ const p=worldPoint(e);setTarget(p.x,p.y);
+});
+function drawHero(){
+ const x=hero.x,y=hero.y+Math.sin(hero.step)*2;
+ ctx.save();ctx.translate(x,y);
+ // soft shadow
+ ctx.fillStyle='#10201688';ctx.beginPath();ctx.ellipse(0,3,18,8,0,0,Math.PI*2);ctx.fill();
+ // legs
+ const swing=hero.moving?Math.sin(hero.step)*4:0;
+ ctx.strokeStyle='#34251d';ctx.lineWidth=6;ctx.lineCap='round';
+ ctx.beginPath();ctx.moveTo(-5,-7);ctx.lineTo(-7+swing,-1);ctx.moveTo(5,-7);ctx.lineTo(7-swing,-1);ctx.stroke();
+ // tunic
+ ctx.fillStyle='#3d79a5';ctx.beginPath();ctx.moveTo(-11,-28);ctx.lineTo(11,-28);ctx.lineTo(14,-8);ctx.lineTo(-14,-8);ctx.closePath();ctx.fill();
+ ctx.strokeStyle='#d9b66d';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,-26);ctx.lineTo(0,-10);ctx.stroke();
+ // head
+ ctx.fillStyle='#e7b88c';ctx.beginPath();ctx.arc(0,-35,9,0,Math.PI*2);ctx.fill();
+ // hair and simple adventurer cap
+ ctx.fillStyle='#49372b';ctx.beginPath();ctx.arc(0,-39,9,Math.PI,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#b88a43';ctx.beginPath();ctx.moveTo(-12,-40);ctx.lineTo(0,-49);ctx.lineTo(12,-40);ctx.closePath();ctx.fill();
+ ctx.fillStyle='#f6d58a';ctx.beginPath();ctx.arc(0,-40,2,0,Math.PI*2);ctx.fill();
+ ctx.restore();
+}
+function draw(){
+ ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+ ctx.fillStyle='#294b36';ctx.fillRect(0,0,W,H);
+ ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);
+ if(map.complete&&map.naturalWidth){
+  ctx.drawImage(map,0,0,world.w,world.h);
+ }else{
+  const g=ctx.createLinearGradient(0,0,world.w,world.h);g.addColorStop(0,'#527c4c');g.addColorStop(1,'#294d36');ctx.fillStyle=g;ctx.fillRect(0,0,world.w,world.h);
+  ctx.fillStyle='#d1b987';ctx.beginPath();ctx.ellipse(770,520,230,135,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#765b3b';ctx.font='bold 44px system-ui';ctx.fillText('EKET VILLAGE',590,510);
+ }
+ // destination marker
+ if(hero.moving){ctx.strokeStyle='#ffe49a';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(hero.tx,hero.ty,13,7,0,0,Math.PI*2);ctx.stroke();}
+ drawHero();ctx.restore();
+}
+function update(dt){
+ if(hero.moving){
+  const dx=hero.tx-hero.x,dy=hero.ty-hero.y,dist=Math.hypot(dx,dy),speed=190;
+  if(dist<speed*dt){hero.x=hero.tx;hero.y=hero.ty;hero.moving=false;}
+  else{
+   const nx=hero.x+dx/dist*speed*dt,ny=hero.y+dy/dist*speed*dt;
+   // Stop before solid areas instead of walking through buildings.
+   if(blocked(nx,ny)){hero.moving=false;}
+   else{hero.x=nx;hero.y=ny;hero.dir=dx>=0?1:-1;hero.step+=dt*13;}
+  }
+ }
+}
+function loop(t){const dt=Math.min((t-last)/1000||0,.04);last=t;update(dt);draw();requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+document.getElementById('back').addEventListener('click',()=>{
+ if(history.length>1)history.back();else location.href='index.html';
+});
+document.getElementById('center').addEventListener('click',()=>{hero.tx=770;hero.ty=520;hero.moving=true;});
+let toastTimer;
+function toast(s){const el=document.getElementById('toast');el.textContent=s;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2200)}
+map.onload=()=>toast('Карта деревни загружена');
+map.onerror=()=>toast('Не удалось загрузить карту. Проверь village-map.png в GitHub.');
+})();
+</script>
+</body>
+</html>
